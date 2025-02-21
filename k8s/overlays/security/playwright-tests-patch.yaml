@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: playwright-tests
+spec:
+  replicas: 2
+  template:
+    spec:
+      containers:
+      - name: playwright-tests
+        resources:
+          requests:
+            cpu: "1"
+            memory: "2Gi"
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+        env:
+        - name: SECURITY_MODE
+          value: "true"
+        - name: ZAP_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: security-secrets
+              key: zap-api-key
+        - name: SNYK_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: security-secrets
+              key: snyk-token
+        - name: SONAR_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: security-secrets
+              key: sonar-token
+        volumeMounts:
+        - name: test-results
+          mountPath: /app/test-results
+        - name: security-reports
+          mountPath: /app/security-reports
+      volumes:
+      - name: test-results
+        emptyDir: {}
+      - name: security-reports
+        persistentVolumeClaim:
+          claimName: security-reports-pvc 

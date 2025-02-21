@@ -1,0 +1,46 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: playwright-monitor
+spec:
+  selector:
+    matchLabels:
+      app: playwright-automation
+  endpoints:
+    - port: metrics
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: playwright-alerts
+spec:
+  groups:
+    - name: playwright.rules
+      rules:
+        - alert: PlaywrightTestFailure
+          expr: playwright_test_failures_total > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Playwright tests are failing"
+            description: "{{ $value }} test(s) have failed in the last 5 minutes"
+        
+        - alert: PlaywrightHighExecutionTime
+          expr: playwright_test_duration_seconds > 3600
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Test execution taking too long"
+            description: "Tests have been running for more than 1 hour"
+        
+        - alert: PlaywrightResourceUtilization
+          expr: container_memory_usage_bytes{container="playwright-tests"} > 3221225472
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High resource utilization"
+            description: "Container is using more than 3GB of memory" 

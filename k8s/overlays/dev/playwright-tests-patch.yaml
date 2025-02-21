@@ -1,0 +1,23 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: playwright-tests
+spec:
+  schedule: "0 */6 * * *"  # Run every 6 hours in dev
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: playwright-tests
+            image: ghcr.io/your-org/playwright-automation:dev
+            resources:
+              requests:
+                memory: "1Gi"
+                cpu: "0.5"
+              limits:
+                memory: "2Gi"
+                cpu: "1"
+            envFrom:
+            - configMapRef:
+                name: playwright-config 

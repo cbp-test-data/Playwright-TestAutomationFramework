@@ -1,0 +1,33 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+bases:
+  - ../../base
+
+namePrefix: load-
+
+commonLabels:
+  environment: load-testing
+
+patchesStrategicMerge:
+  - playwright-tests-patch.yaml
+
+configMapGenerator:
+  - name: playwright-config
+    literals:
+      - BASE_URL=https://load.example.com
+      - WORKERS=16
+      - RETRIES=0
+      - VIDEO_RECORDING=false
+      - TRACE_RECORDING=false
+      - PERFORMANCE_TRACING=true
+      - CPU_THROTTLING=0
+      - NETWORK_THROTTLING=NONE
+      - K6_VUS=500
+      - K6_DURATION=30m
+      - LOAD_TEST_USERS=1000
+      - LOAD_TEST_RAMPUP=5m
+      - LOAD_TEST_HOLD=20m
+      - LOAD_TEST_RAMPDOWN=5m
+      - METRICS_ENABLED=true
+      - METRICS_INTERVAL=1s 

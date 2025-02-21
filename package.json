@@ -1,0 +1,34 @@
+{
+  "name": "playwright-test-automation-framework",
+  "version": "1.0.0",
+  "description": "Playwright Test Automation Framework migrated from Selenium",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "test:debug": "playwright test --debug",
+    "test:api": "playwright test tests/api/",
+    "test:ui-only": "playwright test tests/specs/",
+    "test:parallel": "playwright test --workers=4",
+    "test:single": "playwright test --workers=1",
+    "report": "playwright show-report",
+    "report:html": "playwright show-report playwright-report",
+    "clean": "rimraf test-results/ playwright-report/ playwright/.cache/",
+    "pretest": "npm run clean"
+  },
+  "keywords": [
+    "playwright",
+    "typescript",
+    "automation",
+    "testing"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@playwright/test": "^1.42.1",
+    "@types/node": "^20.11.24",
+    "dotenv": "^16.4.5",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.3.3"
+  }
+}

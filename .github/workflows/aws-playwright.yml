@@ -1,0 +1,204 @@
+name: AWS Playwright Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to run tests against'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - dev
+          - qa
+          - staging
+          - prod
+      browser:
+        description: 'Browser to run tests on'
+        required: true
+        default: 'chromium'
+        type: choice
+        options:
+          - chromium
+          - firefox
+          - webkit
+          - all
+      test_suite:
+        description: 'Test suite to run'
+        required: false
+        type: string
+        default: 'all'
+      instance_type:
+        description: 'EC2 instance type'
+        required: true
+        default: 't3.large'
+        type: choice
+        options:
+          - t3.large
+          - t3.xlarge
+          - c5.2xlarge
+      use_spot:
+        description: 'Use spot instances'
+        required: true
+        default: 'true'
+        type: boolean
+
+env:
+  AWS_REGION: us-west-2
+  EC2_AMI_ID: ami-0c55b159cbfafe1f0  # Ubuntu 20.04 LTS
+  AWS_S3_BUCKET: playwright-test-results
+  MIN_INSTANCES: 1
+  MAX_INSTANCES: 10
+
+jobs:
+  prepare-aws:
+    runs-on: ubuntu-latest
+    outputs:
+      asg-name: ${{ steps.create-asg.outputs.asg-name }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Create Launch Template
+        id: create-template
+        run: |
+          TEMPLATE_ID=$(aws ec2 create-launch-template \
+            --launch-template-name "playwright-${{ github.run_id }}" \
+            --version-description "Playwright test runner" \
+            --launch-template-data '{
+              "ImageId": "${{ env.EC2_AMI_ID }}",
+              "InstanceType": "${{ github.event.inputs.instance_type }}",
+              "KeyName": "playwright-tests",
+              "SecurityGroupIds": ["${{ secrets.AWS_SECURITY_GROUP }}"],
+              "UserData": "${{ steps.encode-userdata.outputs.userdata }}",
+              "IamInstanceProfile": {
+                "Name": "playwright-test-runner"
+              },
+              "InstanceMarketOptions": {
+                "MarketType": "spot",
+                "SpotOptions": {
+                  "MaxPrice": "auto",
+                  "SpotInstanceType": "persistent"
+                }
+              }
+            }' \
+            --query 'LaunchTemplate.LaunchTemplateId' \
+            --output text)
+          echo "template-id=$TEMPLATE_ID" >> $GITHUB_OUTPUT
+
+      - name: Create Auto Scaling Group
+        id: create-asg
+        run: |
+          ASG_NAME="playwright-${{ github.run_id }}"
+          aws autoscaling create-auto-scaling-group \
+            --auto-scaling-group-name "$ASG_NAME" \
+            --launch-template "LaunchTemplateId=${{ steps.create-template.outputs.template-id }}" \
+            --min-size ${{ env.MIN_INSTANCES }} \
+            --max-size ${{ env.MAX_INSTANCES }} \
+            --desired-capacity 1 \
+            --vpc-zone-identifier "${{ secrets.AWS_SUBNET_ID }}" \
+            --tags "Key=Name,Value=playwright-test-runner,PropagateAtLaunch=true"
+          echo "asg-name=$ASG_NAME" >> $GITHUB_OUTPUT
+
+  run-tests:
+    needs: prepare-aws
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        shard: [1, 2, 3, 4]  # Run tests in parallel shards
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get EC2 instances
+        id: get-instances
+        run: |
+          INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
+            --auto-scaling-group-names "${{ needs.prepare-aws.outputs.asg-name }}" \
+            --query 'AutoScalingGroups[0].Instances[*].InstanceId' \
+            --output text)
+          echo "instance-ids=$INSTANCE_IDS" >> $GITHUB_OUTPUT
+
+      - name: Run tests on instances
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ steps.get-instances.outputs.instance-ids }}
+          username: ubuntu
+          key: ${{ secrets.AWS_SSH_PRIVATE_KEY }}
+          script: |
+            cd /home/ubuntu/playwright-tests
+            git clone ${{ github.repository }} .
+            npm install
+            npx playwright install --with-deps
+            
+            # Set environment variables
+            export CI=true
+            export BROWSER=${{ github.event.inputs.browser }}
+            export TEST_SUITE=${{ github.event.inputs.test_suite }}
+            export SHARD=${{ matrix.shard }}/4
+            
+            # Run tests based on inputs
+            if [ "$TEST_SUITE" = "all" ]; then
+              npm test -- --shard=$SHARD
+            else
+              npx playwright test $TEST_SUITE --shard=$SHARD
+            fi
+
+      - name: Upload test results to S3
+        run: |
+          aws s3 sync /home/ubuntu/playwright-tests/test-results \
+            s3://${{ env.AWS_S3_BUCKET }}/${{ github.sha }}/shard-${{ matrix.shard }}/test-results
+          aws s3 sync /home/ubuntu/playwright-tests/playwright-report \
+            s3://${{ env.AWS_S3_BUCKET }}/${{ github.sha }}/shard-${{ matrix.shard }}/playwright-report
+
+  merge-reports:
+    needs: run-tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all reports
+        run: |
+          aws s3 sync \
+            s3://${{ env.AWS_S3_BUCKET }}/${{ github.sha }} \
+            ./all-results
+
+      - name: Merge reports
+        run: |
+          npx playwright merge-reports ./all-results/*/playwright-report
+
+      - name: Upload merged report
+        run: |
+          aws s3 cp \
+            ./playwright-report \
+            s3://${{ env.AWS_S3_BUCKET }}/${{ github.sha }}/merged-report \
+            --recursive
+
+  cleanup:
+    needs: [prepare-aws, run-tests, merge-reports]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Delete Auto Scaling Group
+        run: |
+          aws autoscaling delete-auto-scaling-group \
+            --auto-scaling-group-name "${{ needs.prepare-aws.outputs.asg-name }}" \
+            --force-delete
+
+      - name: Delete Launch Template
+        run: |
+          aws ec2 delete-launch-template \
+            --launch-template-id "${{ steps.create-template.outputs.template-id }}" 

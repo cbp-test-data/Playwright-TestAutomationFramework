@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+bases:
+  - ../../base
+
+namePrefix: staging-
+
+commonLabels:
+  environment: staging
+
+patchesStrategicMerge:
+  - playwright-tests-patch.yaml
+
+configMapGenerator:
+  - name: playwright-config
+    literals:
+      - BASE_URL=https://staging.example.com
+      - WORKERS=3
+      - RETRIES=1
+      - VIDEO_RECORDING=true 

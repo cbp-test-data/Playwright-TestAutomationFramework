@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+bases:
+  - ../../base
+
+namePrefix: perf-
+
+commonLabels:
+  environment: performance
+
+patchesStrategicMerge:
+  - playwright-tests-patch.yaml
+
+configMapGenerator:
+  - name: playwright-config
+    literals:
+      - BASE_URL=https://perf.example.com
+      - WORKERS=8
+      - RETRIES=0
+      - VIDEO_RECORDING=true
+      - TRACE_RECORDING=true
+      - PERFORMANCE_TRACING=true
+      - CPU_THROTTLING=4
+      - NETWORK_THROTTLING=LTE
+      - LIGHTHOUSE_ENABLED=true
+      - K6_VUS=100
+      - K6_DURATION=5m 

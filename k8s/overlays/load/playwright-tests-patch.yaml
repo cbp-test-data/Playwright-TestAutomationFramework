@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: playwright-tests
+spec:
+  replicas: 4
+  template:
+    spec:
+      containers:
+      - name: playwright-tests
+        resources:
+          requests:
+            cpu: "2"
+            memory: "4Gi"
+          limits:
+            cpu: "4"
+            memory: "8Gi"
+        env:
+        - name: NODE_OPTIONS
+          value: "--max-old-space-size=4096"
+        - name: PERFORMANCE_MODE
+          value: "true"
+        volumeMounts:
+        - name: test-results
+          mountPath: /app/test-results
+        - name: performance-data
+          mountPath: /app/performance-data
+      volumes:
+      - name: test-results
+        emptyDir: {}
+      - name: performance-data
+        persistentVolumeClaim:
+          claimName: performance-data-pvc 
