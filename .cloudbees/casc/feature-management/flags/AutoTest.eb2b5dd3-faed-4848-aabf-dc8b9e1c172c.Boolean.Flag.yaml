@@ -8,7 +8,5 @@ description: AutoTest Description
 labels:
 
 availableValues:
-  - "true"
-  - "false"
 
 isPermanent: false
